@@ -55,13 +55,13 @@ const PORT = {
     eq: .4, ob: .6, gold: 0, cash: 0, realRet: .025, inflBeta: -0.15, fxExp: 0.38,
   },
   eq20: {
-    label: '20/80 Az/Ob', desc: 'Portafoglio molto conservativo. Minima esposizione azionaria, massima stabilità. Rendimento reale spesso prossimo a zero in contesti di alta inflazione. Volatilità effettiva ~5.5% (80% ob aggregato 5-7a con duration risk).',
-    best: .046, normal: .035, worst: .014, vol: .055,
+    label: '20/80 Az/Ob', desc: 'Portafoglio molto conservativo. Minima esposizione azionaria, massima stabilità. Rendimento reale spesso prossimo a zero in contesti di alta inflazione.',
+    best: .044, normal: .035, worst: .018, vol: .045,
     eq: .2, ob: .8, gold: 0, cash: 0, realRet: .015, inflBeta: -0.25, fxExp: 0.19,
   },
   ob100: {
-    label: '100% Obbligaz.', desc: 'Portafoglio interamente obbligazionario. Protezione del capitale nominale, ma soffre molto in periodi di alta inflazione e rialzo tassi. Volatilità effettiva ~5.5% (duration risk su scadenze medie 5-7a — aggregato governativo EU/glob hedged).',
-    best: .041, normal: .030, worst: .009, vol: .055,
+    label: '100% Obbligaz.', desc: 'Portafoglio interamente obbligazionario. Protezione del capitale nominale, ma soffre molto in periodi di alta inflazione e rialzo tassi. Volatilità effettiva ~4% (includendo duration risk su scadenze medie 5-7a).',
+    best: .038, normal: .030, worst: .015, vol: .040,
     eq: 0, ob: 1.0, gold: 0, cash: 0, realRet: .010, inflBeta: -0.35, fxExp: 0.05,
   },
   lifecycle: {
@@ -98,8 +98,8 @@ const PORT = {
     label: '🌤️ All Seasons (Dalio)',
     desc: 'Versione retail dell\'All Weather di Ray Dalio (Bridgewater). Composizione: 30% Azioni, 40% Ob. Lungo Termine, 15% Ob. Medio Termine, 7.5% Oro, 7.5% Commodities. Progettato per distribuire il rischio su quattro regimi macro (crescita alta/bassa × inflazione alta/bassa). Storicamente: ~7.5%/a nominale, σ≈8%. Rendimento atteso forward-looking: ~5.0%/a. Nota: l\'allocazione del 40% in obbligazioni a lungo termine lo rende più vulnerabile all\'inflazione di quanto sembri (beta inflazione calcolato ≈ −0.03: la perdita sulle obbligazioni compensa quasi del tutto la protezione di oro e commodities).',
     best: .066, normal: .050, worst: .020, vol: .080,
-    eq: .30, ob: .55, gold: .075, cash: 0,
-    realRet: .030, inflBeta: -0.03, fxExp: 0.40, // 30%eq*0.85 + 7.5%oro*1.0 + 55%ob*0.05 + 7.5%comm*0.80
+    eq: .30, ob: .55, gold: .15, cash: 0,
+    realRet: .030, inflBeta: -0.03, fxExp: 0.40, // 30%eq*0.85 + 15%real(oro+comm) + 55%ob*0.05; i real asset (oro 7.5% + commodities 7.5%) sono modellati nello sleeve 'gold'
     breakdown: {
       'Azioni Globali': '30%',
       'Ob. Lungo Termine': '40%',
@@ -110,10 +110,10 @@ const PORT = {
   },
   larry: {
     label: '📐 Larry Portfolio',
-    desc: 'Ideato da Larry Swedroe. Alta concentrazione su fattori di rischio accademici (small cap value, emerging). Composizione: 15% US Small Cap Value, 7.5% Intl Small Cap Value, 7.5% Emerging Markets, 70% Ob. Breve/Medio Termine. L\'idea: concentrare il rischio solo sull\'azionario ad alto rendimento atteso (small cap value, emerging) ammortizzato da bond a bassa duration. Volatilità portafoglio calcolata ~7.0%/a. Rendimento atteso ~5.0%/a (0.30×8.5% SCV + 0.70×3.5% ob breve). Beta inflazione calcolato ≈ −0.02: il contributo del bond breve (tassi flottanti) è quasi neutralizzato dalla quota azionaria value.',
-    best: .064, normal: .050, worst: .023, vol: .070,
+    desc: 'Ideato da Larry Swedroe. Alta concentrazione su fattori di rischio accademici (small cap value, emerging). Composizione: 15% US Small Cap Value, 7.5% Intl Small Cap Value, 7.5% Emerging Markets, 70% Ob. Breve/Medio Termine. L\'idea: concentrare il rischio solo sull\'azionario ad alto rendimento atteso (small cap value, emerging) ammortizzato da bond a bassa duration. Volatilità portafoglio calcolata ~7.5%/a. Rendimento atteso ~5.8%/a. Beta inflazione calcolato ≈ −0.02: il contributo del bond breve (tassi flottanti) è quasi neutralizzato dalla quota azionaria value.',
+    best: .073, normal: .058, worst: .030, vol: .075,
     eq: .30, ob: .70, gold: 0, cash: 0,
-    realRet: .030, inflBeta: -0.02, fxExp: 0.29,
+    realRet: .038, inflBeta: -0.02, fxExp: 0.29, // 30%eq*0.85 + 70%ob*0.05
     breakdown: {
       'US Small Cap Value': '15%',
       'Intl Small Cap Value': '7.5%',
@@ -392,6 +392,33 @@ const AC_CAT = (key) => {
   if (!a) return 'other';
   return a.cat || 'other';
 };
+
+// ── Compatibilità BOOTSTRAP / BACKTEST STORICO ─────────────────────────────
+// Il block bootstrap e il backtest storico campionano da SOLE 3 serie storiche
+// reali: azioni sviluppate, aggregate bond, oro (1970-2024). Gli asset privi
+// di una serie dedicata verrebbero schiacciati sulla serie obbligazionaria
+// (vol ~2%), falsando in modo qualitativo rischio e decorrelazione:
+//   • Trend Following / Managed Futures (cat 'trend'): vol ~15%, ρ_eq≈−0.05
+//   • Carry obbligazionario / FX (cat 'carry'): vol ~8.5-9.5%, crash risk
+//   • Commodities (cat 'real' ma non oro): vol ~18.5%, dinamica propria
+// Per questi asset i modelli parametrici (Gaussiano, t-Student, GARCH,
+// Regime-Switching) restano fedeli — usano vol e matrici di correlazione.
+// Le commodities sono tollerate come proxy-oro (entrambe real/inflation hedge);
+// trend e carry NO, perché strutturalmente diversi da qualunque serie disponibile.
+const HIST_UNMAPPED_CATS = ['trend', 'carry'];
+function getUnmappedHistAssets(portKey) {
+  // Restituisce l'elenco { label, cat } degli asset custom non rappresentabili
+  // nelle serie storiche. Vuoto per i portafogli predefiniti (sempre mappabili).
+  if (portKey !== 'custom') return [];
+  const slots = (state.customPortfolio?.slots || []).filter(s => s.ac && ASSET_CLASSES[s.ac] && s.pct > 0);
+  const out = [];
+  for (const sl of slots) {
+    const ac = ASSET_CLASSES[sl.ac];
+    if (HIST_UNMAPPED_CATS.includes(ac.cat)) out.push({ key: sl.ac, label: ac.label, cat: ac.cat });
+  }
+  return out;
+}
+function histModelsAvailable(portKey) { return getUnmappedHistAssets(portKey).length === 0; }
 
 // ── Matrice di correlazione per categoria (empirica, 1970-2024) ───────────────
 // Categorie:
@@ -675,7 +702,7 @@ function getEquityWeight(port, age) {
 
 function getGoldWeight(port) {
   if (port === 'custom') return calcCustomParams().goldW;
-  const m = { golden_butterfly: .2, permanent: .25, all_seasons: .075 };
+  const m = { golden_butterfly: .2, permanent: .25, all_seasons: .15 };
   return m[port] ?? 0;
 }
 
@@ -692,7 +719,7 @@ function calcCustomParams() {
   const total = slots.reduce((s, sl) => s + sl.pct, 0) || 1;
 
   // ── 2. Rendimento atteso ponderato e beta inflazione ──────────
-  let mu = 0, inflBeta = 0, eqW = 0, obW = 0, goldW = 0, cashW = 0, terW = 0, fxExpW = 0;
+  let mu = 0, inflBeta = 0, eqW = 0, obW = 0, goldW = 0, cashW = 0, altW = 0, terW = 0, fxExpW = 0;
   for (const sl of slots) {
     const ac = ASSET_CLASSES[sl.ac];
     if (!ac) continue;
@@ -704,9 +731,13 @@ function calcCustomParams() {
     if (ac.isEq)        eqW   += w;
     else if (ac.isGold) goldW += w;
     else if (ac.isCash) cashW += w;
+    // Real asset non-oro (commodities), carry e trend NON sono obbligazioni:
+    // vanno in uno sleeve "alternativi/real" separato per non distorcere la
+    // ripartizione mostrata e la logica scenari (baseOb*obMult non si applica).
+    else if (ac.cat === 'real' || ac.cat === 'carry' || ac.cat === 'trend') altW += w;
     else                obW   += w;
   }
-  const obW2 = Math.max(0, obW || (1 - eqW - goldW - cashW));
+  const obW2 = Math.max(0, obW || (1 - eqW - goldW - cashW - altW));
 
   // ── 3. Volatilità con matrice di correlazione semplificata ────
   // σ²_p = Σᵢ Σⱼ wᵢ wⱼ σᵢ σⱼ ρᵢⱼ
@@ -771,7 +802,7 @@ function calcCustomParams() {
     volStress: sigmaStressFx,      // vol in regime di crisi (FX vol amplificata)
     volNoFx: sigma,                // vol senza componente FX (riferimento)
     eq:   eqW, ob: obW2, gold: goldW, cash: cashW,
-    goldW, cashW,
+    goldW, cashW, altW,
     realRet:  Math.max(0, muNet - 0.021),
     inflBeta,
     ter:  terW,                    // TER pesato suggerito (ETF tipici)
@@ -850,13 +881,18 @@ function getRateEco(portKey, ecoKey, year, startAge, ecoWin) {
   const goldW = Math.max(0, p.gold ?? getGoldWeight(portKey));
   const cashW = Math.max(0, p.cash ?? getCashWeight(portKey));
   const obW   = Math.max(0, p.ob   ?? Math.max(0, 1 - eqW - goldW - cashW));
+  // Alt asset custom (commodities/carry/trend): si comportano da real asset/
+  // diversificatori — usano il moltiplicatore oro dello scenario (proxy ragionevole:
+  // in inflazione salgono, in deflazione sono inerti). Solo per 'custom'.
+  const altW  = Math.max(0, p.altW ?? 0);
   // Normalizza in modo che i pesi sommino a 1 (rilevante per leva implicita)
-  const wSum = eqW + obW + goldW + cashW || 1;
+  const wSum = eqW + obW + goldW + cashW + altW || 1;
 
-  const baseEq = 0.07, baseOb = 0.03, baseGold = 0.04;
+  const baseEq = 0.07, baseOb = 0.03, baseGold = 0.04, baseAlt = 0.04;
   const rateBase = (eqW   * baseEq   * eco.eqMult
                   + obW   * baseOb   * eco.obMult
                   + goldW * baseGold * eco.goldMult
+                  + altW  * baseAlt  * eco.goldMult
                   + cashW * eco.cashRet) / wSum;
   // Correggi per hedging FX (costo) anche negli scenari economici
   const fxExpPort = portKey === 'custom' ? (calcCustomParams().fxExposure ?? 0) : (PORT[portKey]?.fxExp ?? 0);
@@ -926,15 +962,17 @@ function blendedTaxRate(age, portKey) {
     const obW    = Math.max(0, cp.ob    ?? 0);
     const goldW  = Math.max(0, cp.goldW ?? 0);
     const cashW  = Math.max(0, cp.cashW ?? 0);
-    // Oro, liquidità, commodities, REITs, fattori → aliquota piena (taxEq, 26%)
+    const altW   = Math.max(0, cp.altW  ?? 0);
+    // Oro, liquidità, commodities, carry, trend, REITs, fattori → aliquota piena (taxEq, 26%)
     // Solo la quota obbligazionaria gode dell'aliquota ridotta (taxOb, 12.5% per gov IT/EU)
     // Normalizza per evitare somme > 1 (es. portafogli con leva implicita)
-    const total = eqW + obW + goldW + cashW || 1;
+    const total = eqW + obW + goldW + cashW + altW || 1;
     return (
       (eqW   / total) * state.taxEq / 100 +
       (obW   / total) * state.taxOb / 100 +
       (goldW / total) * state.taxEq / 100 +
-      (cashW / total) * state.taxEq / 100
+      (cashW / total) * state.taxEq / 100 +
+      (altW  / total) * state.taxEq / 100
     );
   }
   const rawEq = getEquityWeight(pKey, age);
@@ -1941,11 +1979,22 @@ function runDecumuloHistorical() {
   const { startPortfolio: sP, withdrawal: w0, years: Y, portfolio: port, strategy: strat, inflation: inflFixed, ter } = decState;
   const terRateM = ter / 100 / 12;
 
+  // Gate: trend/carry non hanno serie storica → il backtest storico non è fedele
+  const unmapped = getUnmappedHistAssets(port);
+  if (unmapped.length) {
+    const err = new Error(`Backtest storico non disponibile: ${unmapped.map(u => u.label).join(', ')} non hanno serie storica nel dataset 1970-2024 (azioni/bond/oro). Usa il Monte Carlo con un modello parametrico.`);
+    err.unmapped = true;
+    throw err;
+  }
+
   // Pesi del portafoglio
   const decAge = state.age + state.years;
   const eqW = getEquityWeight(port, decAge);
-  const goldW = getGoldWeight(port);
+  const goldW0 = getGoldWeight(port);
   const cashW = getCashWeight(port);
+  // Commodities ammesse mappate sull'oro (proxy real-asset)
+  const altW = port === 'custom' ? (calcCustomParams().altW || 0) : 0;
+  const goldW = goldW0 + altW;
   const obW = Math.max(0, 1 - eqW - goldW - cashW);
 
   // Anni di partenza disponibili (servono Y anni di dati dopo)
@@ -2271,6 +2320,7 @@ function renderCustomBuilder() {
       <span class="custom-param-chip">Az: <strong>${(cp.eq*100).toFixed(0)}%</strong></span>
       <span class="custom-param-chip">Ob: <strong>${(cp.ob*100).toFixed(0)}%</strong></span>
       ${cp.goldW>0?`<span class="custom-param-chip">Oro: <strong>${(cp.goldW*100).toFixed(0)}%</strong></span>`:''}
+      ${cp.altW>0?`<span class="custom-param-chip" title="Commodities, carry, trend following — real asset / diversificatori">Alt: <strong>${(cp.altW*100).toFixed(0)}%</strong></span>`:''}
       ${cp.cashW>0?`<span class="custom-param-chip">Cash: <strong>${(cp.cashW*100).toFixed(0)}%</strong></span>`:''}
     </div>`;
   el.innerHTML = `
@@ -2374,10 +2424,10 @@ function syncCustomTer() {
   updateRetInfo();
 }
 
-function addCustomSlot(){ state.customPortfolio.slots.push({ac:'',pct:0}); renderCustomBuilder(); syncCustomTer(); render(); }
-function delCustomSlot(i){ state.customPortfolio.slots.splice(i,1); if(!state.customPortfolio.slots.length) state.customPortfolio.slots.push({ac:'eq_world',pct:100}); renderCustomBuilder(); syncCustomTer(); render(); }
-function updCustomAc(i,ac){ state.customPortfolio.slots[i].ac=ac; renderCustomBuilder(); syncCustomTer(); render(); }
-function updCustomPct(i,pct){ state.customPortfolio.slots[i].pct=Math.max(0,pct); renderCustomBuilder(); syncCustomTer(); render(); }
+function addCustomSlot(){ state.customPortfolio.slots.push({ac:'',pct:0}); renderCustomBuilder(); syncCustomTer(); render(); updateBootstrapBtnState(); }
+function delCustomSlot(i){ state.customPortfolio.slots.splice(i,1); if(!state.customPortfolio.slots.length) state.customPortfolio.slots.push({ac:'eq_world',pct:100}); renderCustomBuilder(); syncCustomTer(); render(); updateBootstrapBtnState(); }
+function updCustomAc(i,ac){ state.customPortfolio.slots[i].ac=ac; renderCustomBuilder(); syncCustomTer(); render(); updateBootstrapBtnState(); }
+function updCustomPct(i,pct){ state.customPortfolio.slots[i].pct=Math.max(0,pct); renderCustomBuilder(); syncCustomTer(); render(); updateBootstrapBtnState(); }
 function normalizeCustom(){ const s=state.customPortfolio.slots.filter(sl=>sl.ac&&sl.pct>0); const t=s.reduce((acc,sl)=>acc+sl.pct,0); if(!t) return; state.customPortfolio.slots=s.map(sl=>({...sl,pct:Math.round(sl.pct/t*1000)/10})); renderCustomBuilder(); syncCustomTer(); render(); }
 
 // ── Toggle copertura cambio EUR/USD ────────────────────────────────
@@ -2501,6 +2551,7 @@ document.getElementById('allocBtns').onclick = e => {
   if (builder) builder.classList.toggle('visible', b.dataset.k === 'custom');
   if (b.dataset.k === 'custom') syncCustomTer();
   updateRetInfo(); updatePortDetailBox(); updateSeqDesc(); render();
+  if (typeof updateBootstrapBtnState === 'function') updateBootstrapBtnState();
 };
 
 function updateRetInfo() {
@@ -2739,7 +2790,7 @@ async function exportExcel() {
     }
 
     // ── 5. Backtesting storico ─────────────────────────────────
-    const hdrBT = ['Anno Inizio', 'Evento', 'IRR annuo (%/a)', 'CAGR cap. iniziale (%/a)', 'Valore Finale (€)', 'Max Drawdown (%)', 'Totale Versato (€)', 'Ritorno Nominale (%)'];
+    const hdrBT = ['Anno Inizio', 'Evento', 'CAGR su tot. investito (%/a)', 'CAGR cap. iniziale (%/a)', 'Valore Finale (€)', 'Max Drawdown (%)', 'Totale Versato (€)', 'Ritorno Nominale (%)'];
     const btPortKey = btState?.port === 'sim' ? portfolio : (btState?.port || portfolio);
     const btPac = btState?.pac ?? state.pac;
     const btW0 = btState?.w ?? state.w;
@@ -2751,7 +2802,7 @@ async function exportExcel() {
         btRows.push([
           sy,
           period.label.split('—')[1]?.trim() || period.label,
-          +((res.irr * 100).toFixed(2)),
+          +((res.cagrOnInvested * 100).toFixed(2)),
           +((res.cagr * 100).toFixed(2)),
           Math.round(res.finalValue),
           +((res.maxDD * 100).toFixed(1)),
@@ -2760,7 +2811,7 @@ async function exportExcel() {
         ]);
       } catch(e) { /* skip if data unavailable */ }
     }
-    btRows.sort((a, b) => b[2] - a[2]); // sort by IRR desc
+    btRows.sort((a, b) => b[2] - a[2]); // sort by cagrOnInvested desc
     const wsBT = XLSX.utils.aoa_to_sheet([hdrBT, ...btRows]);
     wsBT['!cols'] = [10,28,14,14,16,14,16,14].map(w=>({wch:w}));
 
@@ -3116,6 +3167,7 @@ async function generatePDF() {
         ['Azioni', ((portMeta.eq || 0) * 100).toFixed(0) + '%'],
         ['Obbligazioni', ((portMeta.ob || 0) * 100).toFixed(0) + '%'],
         ['Oro / commodities', ((portMeta.gold || 0) * 100).toFixed(0) + '%'],
+        ['Alternativi (comm./carry/trend)', ((portMeta.altW || 0) * 100).toFixed(0) + '%'],
         ['Cash / liquidita', ((portMeta.cash || 0) * 100).toFixed(0) + '%'],
         ['Rendimento reale storico', ((portMeta.realRet || 0) * 100).toFixed(2) + '% /a'],
         ['Beta vs inflazione', String(portMeta.inflBeta ?? 'n/d')],
@@ -3345,7 +3397,7 @@ async function generatePDF() {
         btResultRows.push([
           String(sy),
           period.label.split('—')[1]?.trim() || period.label,
-          (res.irr >= 0 ? '+' : '') + (res.irr * 100).toFixed(2) + '%/a',
+          (res.cagrOnInvested >= 0 ? '+' : '') + (res.cagrOnInvested * 100).toFixed(2) + '%/a',
           (res.cagr >= 0 ? '+' : '') + (res.cagr * 100).toFixed(2) + '%/a',
           fmtFull(res.finalValue),
           (res.maxDD * 100).toFixed(1) + '%',
@@ -3356,7 +3408,7 @@ async function generatePDF() {
     btResultRows.sort((a, b) => parseFloat(b[2]) - parseFloat(a[2]));
     doc.autoTable({
       startY: y,
-      head: [['Anno', 'Evento Storico', 'IRR annuo', 'CAGR cap. iniziale', 'Valore Finale', 'Max DD', 'Totale Versato']],
+      head: [['Anno', 'Evento Storico', 'CAGR su tot. invest.', 'CAGR cap. iniziale', 'Valore Finale', 'Max DD', 'Totale Versato']],
       body: btResultRows,
       styles: { fontSize: 7.5, cellPadding: 2.2 },
       headStyles: { fillColor: [0, 150, 167], textColor: WHT, fontStyle: 'bold', fontSize: 7.5 },
@@ -3370,9 +3422,8 @@ async function generatePDF() {
     });
     y = doc.lastAutoTable.finalY + 5;
     narrative(
-      'IRR annuo = Internal Rate of Return annualizzato — tiene conto del timing e dell\'importo di ogni versamento PAC. ' +
-      'È la metrica corretta per confrontare piani con versamenti periodici: equivale al tasso di sconto che azzera il VAN dei flussi di cassa. ' +
-      'CAGR cap. iniziale = crescita del solo patrimonio iniziale — gonfiato dai versamenti PAC se attivi. ' +
+      'CAGR su tot. invest. = rendimento annuo composto sul totale versato (PAC incluso) — misura quanto il capitale effettivamente investito ha reso. ' +
+      'CAGR cap. iniziale = crescita del solo patrimonio di partenza fino al valore finale — gonfiato dai versamenti PAC se attivi, utile solo per confronto tra periodi. ' +
       'Il Max Drawdown misura la massima perdita dal picco precedente. ' +
       'Nota: dati in USD; effetto cambio EUR/USD non incluso.'
     );
@@ -3648,6 +3699,7 @@ async function downloadGuidePDF() {
   btn.disabled = true; btn.innerHTML = '⏳ Generazione...';
   await new Promise(r => setTimeout(r, 60));
   try {
+    if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('Libreria PDF non caricata');
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const W = 210, H = 297, ML = 16, MR = 16, CW = W - ML - MR;
@@ -3969,19 +4021,30 @@ const HIST_CALIBRATION = {
   // Target CAGR nominali 1970-2024:
   // Equity Mercati Sviluppati ~10.4%/a → offset -0.00395/mese
   // US Aggregate Bond ~6.5%/a (con cedola) → offset +0.00475/mese
-  // Oro spot ~7.8%/a → offset -0.0019/mese (lieve)
+  // Oro spot ~7.8%/a CAGR e σ≈15%/a (coerente col parametro gold.vol)
   // Nota: l'offset equity è inferiore al gap mu_aritmetico (0.48%)
   // perché la "vol drag" (-0.5·σ²) riduce il CAGR geometrico rispetto al mu aritmetico
   eqOffset:   -0.00395,   // sottrae drift in eccesso, lascia varianza intatta
   bondOffset: +0.00475,   // aggiunge cedola obbligazionaria storica
-  goldOffset: -0.00190,   // calibra lieve eccesso oro
+  // ── Oro: doppia calibrazione (scala + offset) ───────────────────
+  // La serie mensile grezza ha σ≈11.7%/a, troppo "liscia" rispetto alla
+  // volatilità storica reale dell'oro (~15%/a) e al parametro parametrico
+  // gold.vol=0.150. Scaliamo gli scarti attorno alla media grezza per
+  // portare σ a 15.0%, poi applichiamo l'offset che ricentra il CAGR a 7.8%
+  // (lo scaling aumenta la vol drag, quindi l'offset compensa).
+  // Risultato verificato sui 660 mesi: CAGR 7.80%, σ 15.00%.
+  goldMeanRaw: 0.008227,  // media mensile grezza serie oro (perno dello scaling)
+  goldScale:   1.27882,   // fattore scala scarti → σ 11.7% ⇒ 15.0%
+  goldOffset:  -0.001045, // ricentra il CAGR geometrico a 7.8%/a
 };
 // Applica calibrazione a un singolo mese
 function calibrateHistRow(row) {
   return [
     row[0] + HIST_CALIBRATION.eqOffset,
     row[1] + HIST_CALIBRATION.bondOffset,
-    row[2] + HIST_CALIBRATION.goldOffset,
+    // Oro: scala gli scarti attorno alla media grezza, poi offset
+    (row[2] - HIST_CALIBRATION.goldMeanRaw) * HIST_CALIBRATION.goldScale
+      + HIST_CALIBRATION.goldMeanRaw + HIST_CALIBRATION.goldOffset,
   ];
 }
 
@@ -4202,11 +4265,38 @@ const ADV_MODEL_DESC = {
 };
 document.getElementById('advMcModelBtns').onclick = e => {
   const b = e.target.closest('[data-m]'); if (!b) return;
+  // Blocca la selezione di bootstrap se il portafoglio ha asset senza serie storica
+  if (b.dataset.m === 'bootstrap' && !histModelsAvailable(state.portfolio)) {
+    const unmapped = getUnmappedHistAssets(state.portfolio).map(u => u.label).join(', ');
+    document.getElementById('advMcModelDesc').innerHTML = `<span style="color:var(--red)"><strong>⚠ Block Bootstrap non disponibile.</strong> ${unmapped} non hanno serie storica nel dataset (solo azioni/bond/oro 1970-2024). Seleziona un modello parametrico — t-Student modella correttamente vol e correlazioni di trend/carry.</span>`;
+    return;
+  }
   advMCState.model = b.dataset.m;
   document.querySelectorAll('#advMcModelBtns .gbtn').forEach(x => x.classList.remove('a-blue','a-purple'));
   b.classList.add('a-blue');
   document.getElementById('advMcModelDesc').innerHTML = ADV_MODEL_DESC[b.dataset.m] || '';
 };
+
+// Aggiorna lo stato visivo del pulsante Bootstrap in base al portafoglio corrente.
+// Se il custom contiene trend/carry: disabilita il pulsante e, se era selezionato,
+// ripiega su t-Student (modello parametrico fedele).
+function updateBootstrapBtnState() {
+  const btn = document.querySelector('#advMcModelBtns [data-m="bootstrap"]');
+  if (!btn) return;
+  const available = histModelsAvailable(state.portfolio);
+  btn.disabled = !available;
+  btn.style.opacity = available ? '' : '0.45';
+  btn.style.cursor = available ? '' : 'not-allowed';
+  btn.title = available ? '' : 'Non disponibile: il portafoglio contiene asset (trend/carry) privi di serie storica. Usa un modello parametrico.';
+  if (!available && advMCState.model === 'bootstrap') {
+    advMCState.model = 'student';
+    document.querySelectorAll('#advMcModelBtns .gbtn').forEach(x => x.classList.remove('a-blue','a-purple'));
+    const sb = document.querySelector('#advMcModelBtns [data-m="student"]');
+    if (sb) sb.classList.add('a-blue');
+    const desc = document.getElementById('advMcModelDesc');
+    if (desc) desc.innerHTML = ADV_MODEL_DESC['student'];
+  }
+}
 document.getElementById('sAdvN').oninput = function(){ advMCState.N=+this.value; document.getElementById('lAdvN').textContent=Number(this.value).toLocaleString('it-IT'); };
 document.getElementById('sAdvNu').oninput = function(){ advMCState.nu=+this.value; document.getElementById('lAdvNu').textContent=this.value; };
 
@@ -4215,6 +4305,17 @@ document.getElementById('advMcModelDesc').innerHTML = ADV_MODEL_DESC['student'];
 
 function runAdvancedMC() {
   const btn = event.target; btn.disabled=true; btn.textContent='⏳ Simulazione...';
+  // ── Gate bootstrap: blocca se il custom contiene asset senza serie storica ──
+  if (advMCState.model === 'bootstrap') {
+    const unmapped = getUnmappedHistAssets(state.portfolio);
+    if (unmapped.length) {
+      const names = unmapped.map(u => u.label).join(', ');
+      const box = document.getElementById('advMcModelDesc');
+      if (box) box.innerHTML = `<span style="color:var(--red)"><strong>⚠ Block Bootstrap non disponibile per questo portafoglio.</strong> Gli asset <em>${names}</em> non hanno una serie storica dedicata nel dataset 1970-2024 (solo azioni sviluppate, aggregate bond e oro). Approssimarli falserebbe rischio e decorrelazione. Usa un modello parametrico (t-Student consigliato): vol e correlazioni di trend/carry sono modellate correttamente.</span>`;
+      btn.disabled=false; btn.textContent='🧮 Esegui Simulazione Avanzata';
+      return;
+    }
+  }
   setTimeout(()=>{
     try {
       const { w, age, years, portfolio, ter, pics, exps, seq } = state;
@@ -4296,9 +4397,14 @@ function runAdvancedMC() {
             r = annR * Math.pow(1 + rsShift, 12) - 1;
             if (i===0) regimeHistory.push(rsState);
           } else { // bootstrap — Block Bootstrap con dati storici reali 1970–2024
-            const goldW_b = getGoldWeight(portfolio);
-            const cashW_b = getCashWeight(portfolio);
-            const obW_b   = Math.max(0, 1 - eqW - goldW_b - cashW_b);
+            const goldW_b0 = getGoldWeight(portfolio);
+            const cashW_b  = getCashWeight(portfolio);
+            // Le commodities ammesse (altW, cat 'real' non-oro) sono mappate sulla
+            // serie ORO — entrambe real asset / inflation hedge. Trend e carry sono
+            // già stati esclusi a monte dal gate, quindi altW qui = sole commodities.
+            const altW_b   = portfolio === 'custom' ? (calcCustomParams().altW || 0) : 0;
+            const goldW_b  = goldW_b0 + altW_b;
+            const obW_b    = Math.max(0, 1 - eqW - goldW_b - cashW_b);
             // Campiona un blocco di 12 mesi contigui dai dati reali
             const n_hist = HIST_MONTHLY.length;
             const startIdx = Math.floor(Math.random() * (n_hist - 11));
@@ -4395,7 +4501,9 @@ function renderAdvMCResults() {
 function renderAdvMCComparison() {
   // Esegui tutti i modelli (N ridotto per velocità)
   const Ncomp = 500, years = state.years, ages = Array.from({length:years+1},(_,i)=>state.age+i);
-  const models = ['gaussian','student','garch','regime','bootstrap'];
+  // Escludi il bootstrap dalla comparazione se il portafoglio ha asset senza serie storica
+  const bootstrapOK = histModelsAvailable(state.portfolio);
+  const models = ['gaussian','student','garch','regime'].concat(bootstrapOK ? ['bootstrap'] : []);
   const modelColors = {gaussian:'#5f6368',student:'#1a73e8',garch:'#9334e6',regime:'#1e8e3e',bootstrap:'#e37400'};
   const modelLabels = {gaussian:'Gaussiano',student:'t-Student',garch:'GARCH',regime:'Regime-Switch',bootstrap:'Bootstrap Storico'};
   const p50s = {};
@@ -4436,9 +4544,11 @@ function renderAdvMCComparison() {
           const rsE=pb*(eqW*RS.bull.mu+(1-eqW)*0.0025)+(1-pb)*(eqW*RS.bear.mu+(1-eqW)*0.0025);
           r=annR*Math.pow(1+(ptm-rsE),12)-1;
         } else { // bootstrap
-          const goldW_b = getGoldWeight(state.portfolio);
-          const cashW_b = getCashWeight(state.portfolio);
-          const obW_b   = Math.max(0, 1 - eqW - goldW_b - cashW_b);
+          const goldW_b0 = getGoldWeight(state.portfolio);
+          const cashW_b  = getCashWeight(state.portfolio);
+          const altW_b   = state.portfolio === 'custom' ? (calcCustomParams().altW || 0) : 0;
+          const goldW_b  = goldW_b0 + altW_b; // commodities mappate sull'oro
+          const obW_b    = Math.max(0, 1 - eqW - goldW_b - cashW_b);
           const n_hist = HIST_MONTHLY.length;
           const startIdx = Math.floor(Math.random() * (n_hist - 11));
           let annR = 1;
@@ -4806,7 +4916,7 @@ function switchTab(tabId) {
   if (tabId==='decumulo') renderDecumulo();
   if (tabId==='fiscale') renderFiscale();
   if (tabId==='backtest') initBacktest();
-  if (tabId==='advmc') document.getElementById('advMcModelDesc').innerHTML=ADV_MODEL_DESC[advMCState.model]||'';
+  if (tabId==='advmc') { document.getElementById('advMcModelDesc').innerHTML=ADV_MODEL_DESC[advMCState.model]||''; updateBootstrapBtnState(); }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -4923,32 +5033,6 @@ function getCorrMultiplier(eqDraw, obDraw) {
   return 0; // normale
 }
 
-// IRR mensile annualizzato su piano PAC.
-// Cash flows: -w0 al mese 0, -pac ai mesi 1..months, +finalValue al mese months.
-// Usa Newton-Raphson senza allocare array (O(1) memoria, ~0.25ms per run).
-// Restituisce IRR annuo: (1+r_mensile)^12 - 1.
-function calcPlanIRR(w0, pacMonthly, months, finalValue) {
-  if (months <= 0 || finalValue <= 0 || (w0 <= 0 && pacMonthly <= 0)) return 0;
-  let r = 0.005; // guess: ~6%/a mensile
-  for (let iter = 0; iter < 150; iter++) {
-    let npv = -w0, dnpv = 0;
-    const r1 = 1 + r;
-    let disc = r1;
-    for (let t = 1; t <= months; t++) {
-      const cf_t = (t === months) ? (finalValue - pacMonthly) : -pacMonthly;
-      npv  += cf_t / disc;
-      dnpv -= t * cf_t / (disc * r1);
-      disc *= r1;
-    }
-    if (Math.abs(dnpv) < 1e-14) break;
-    const step = npv / dnpv;
-    const rNew = r - step;
-    if (Math.abs(step) < 1e-10) { r = rNew; break; }
-    r = Math.max(-0.95, Math.min(0.5, rNew));
-  }
-  return Math.pow(1 + r, 12) - 1;
-}
-
 // Simula il piano PAC su dati storici reali
 // portKey: portafoglio (usa pesi eq/ob/gold/cash)
 // startYear: anno di partenza
@@ -4959,8 +5043,11 @@ function simulateBacktest(portKey, startYear, pacMonthly, w0) {
   const months = years * 12;
   
   const eqW = getEquityWeight(portKey, state.age);
-  const goldW = getGoldWeight(portKey);
+  const goldW0 = getGoldWeight(portKey);
   const cashW = getCashWeight(portKey);
+  // Commodities ammesse (altW) mappate sull'oro; trend/carry esclusi a monte dal gate
+  const altW = portKey === 'custom' ? (calcCustomParams().altW || 0) : 0;
+  const goldW = goldW0 + altW;
   const obW = Math.max(0, 1 - eqW - goldW - cashW);
 
   const terRate = state.ter / 100 / 12; // mensile
@@ -5025,11 +5112,14 @@ function simulateBacktest(portKey, startYear, pacMonthly, w0) {
   const finalValue = annualValues[annualValues.length - 1];
   const finalInvested = annualInvested[annualInvested.length - 1];
   const totalReturn = finalInvested > 0 ? (finalValue - finalInvested) / finalInvested : 0;
-  // CAGR "semplice" — crescita del solo capitale iniziale w0. Con PAC attivo è gonfiato dai versamenti.
+  // CAGR "semplice" — crescita del capitale iniziale w0 fino al valore finale.
+  // Con PAC attivo sovrastima il rendimento perché include i versamenti come se fossero crescita.
+  // Utile come confronto tra periodi di partenza diversi ma va interpretato come "CAGR sul capitale iniziale".
   const cagr = annualValues.length > 1 ? Math.pow(finalValue / (annualValues[0] || 1), 1 / (annualValues.length - 1)) - 1 : 0;
-  // IRR (Internal Rate of Return) mensile annualizzato — la metrica corretta per piani con versamenti periodici.
-  // Newton-Raphson su flussi mensili: cf[0]=-w0, cf[1..months]=-pac, cf[months]+=finalValue.
-  const irr = calcPlanIRR(w0, pacMonthly, months, finalValue);
+  // CAGR sul totale investito (Modified Dietz semplificato) — tiene conto dei versamenti PAC.
+  // Risolve: finalValue = finalInvested * (1 + cagrInv)^n  → utile per confrontare la remunerazione del capitale investito.
+  const n = annualValues.length - 1;
+  const cagrOnInvested = (finalInvested > 0 && n > 0) ? Math.pow(finalValue / finalInvested, 1 / n) - 1 : 0;
   const dd = maxDrawdown(annualValues);
   const realValues = annualValues.map((v, i) => {
     let cumI = 1;
@@ -5039,7 +5129,7 @@ function simulateBacktest(portKey, startYear, pacMonthly, w0) {
   
   return {
     annualValues, annualInvested, realValues,
-    finalValue, finalInvested, totalReturn, cagr, irr, maxDD: dd,
+    finalValue, finalInvested, totalReturn, cagr, cagrOnInvested, maxDD: dd,
     years: annualValues.length - 1,
     yearlyEqReturns,
     cumInflation: cumInfl,
@@ -5052,6 +5142,35 @@ function runBacktest() {
   
   const period = BT_PERIODS[startYear];
   if (!period) return;
+
+  // ── Gate: il backtest usa solo serie azioni/bond/oro. Se il portafoglio
+  // importato dal simulatore è un custom con trend/carry, non esiste una
+  // serie storica fedele → mostra avviso invece di numeri fuorvianti.
+  const unmapped = getUnmappedHistAssets(portKey);
+  if (unmapped.length) {
+    const names = unmapped.map(u => u.label).join(', ');
+    document.getElementById('btResults').style.display = 'block';
+    document.getElementById('btCompareSec').style.display = 'none';
+    document.getElementById('btResultTitle').textContent = 'Backtesting non disponibile';
+    const body = document.getElementById('btResultBody') || document.getElementById('btResults');
+    const warnHtml = `<div class="callout" style="border-color:var(--red);background:rgba(217,48,37,.06);margin-top:12px">
+      <strong style="color:var(--red)">⚠ Backtesting non applicabile a questo portafoglio</strong>
+      <p style="margin:8px 0 0">Il portafoglio selezionato contiene <em>${names}</em>, asset privi di una serie storica dedicata nel dataset 1970-2024 (che copre solo azioni mercati sviluppati, aggregate bond e oro). Un backtest "storico" su questi asset non sarebbe reale: verrebbero approssimati come obbligazioni, azzerandone volatilità e decorrelazione.</p>
+      <p style="margin:8px 0 0">Per analizzare un portafoglio con trend following o carry usa il <strong>Monte Carlo Avanzato</strong> con un modello parametrico (t-Student consigliato): volatilità e correlazioni di questi asset sono modellate correttamente.</p>
+    </div>`;
+    // Inserisci l'avviso e nascondi grafici/metriche residue
+    const charts = ['chBt','chBtDD'];
+    charts.forEach(id => { const c = document.getElementById(id); if (c && c.closest('.card,.chart-wrap,.pblock')) c.closest('.card,.chart-wrap,.pblock').style.display='none'; });
+    let warnBox = document.getElementById('btUnmappedWarn');
+    if (!warnBox) { warnBox = document.createElement('div'); warnBox.id='btUnmappedWarn'; document.getElementById('btResults').appendChild(warnBox); }
+    warnBox.innerHTML = warnHtml;
+    warnBox.style.display = 'block';
+    return;
+  }
+  // Se in precedenza era stato mostrato l'avviso, ripristina la vista normale
+  const prevWarn = document.getElementById('btUnmappedWarn');
+  if (prevWarn) prevWarn.style.display = 'none';
+  ['chBt','chBtDD'].forEach(id => { const c = document.getElementById(id); if (c && c.closest('.card,.chart-wrap,.pblock')) c.closest('.card,.chart-wrap,.pblock').style.display=''; });
 
   const result = simulateBacktest(portKey, startYear, pac, w);
   
@@ -5068,12 +5187,17 @@ function runBacktest() {
   // Stats
   const portLabel = getPortLabel(portKey);
   const inflAdjReturn = result.cumInflation > 0 ? (result.finalValue / result.cumInflation - result.finalInvested) / result.finalInvested : result.totalReturn;
+  // Nota: cagr = crescita del solo capitale iniziale (w0), utile per confronto periodi
+  //       cagrOnInvested = rendimento sul totale versato PAC incluso (più realistico se PAC > 0)
+  const cagrLabel = btState.pac > 0
+    ? `CAGR su cap. iniziale (€${fmtN(w)})`
+    : 'CAGR nominale';
   document.getElementById('btStats').innerHTML = [
     { l: `Valore finale (${startYear}→${startYear+result.years})`, v: fmt(result.finalValue), c: 'var(--blue)' },
     { l: 'Totale versato (cap. iniz. + PAC)', v: fmt(result.finalInvested), c: 'var(--text)' },
     { l: 'Ritorno su totale investito', v: (result.totalReturn >= 0 ? '+' : '') + (result.totalReturn * 100).toFixed(1) + '%', c: result.totalReturn >= 0 ? 'var(--green)' : 'var(--red)' },
-    { l: btState.pac > 0 ? 'IRR annuo (tasso interno di rendimento)' : 'CAGR nominale', v: (result.irr >= 0 ? '+' : '') + (result.irr * 100).toFixed(2) + '%/a', c: result.irr >= 0 ? 'var(--green)' : 'var(--red)', note: btState.pac > 0 ? 'corretto per timing e importo dei versamenti PAC' : '' },
-    ...(btState.pac > 0 ? [{ l: `CAGR cap. iniziale (€${fmtN(w)})`, v: (result.cagr >= 0 ? '+' : '') + (result.cagr * 100).toFixed(2) + '%/a', c: 'var(--text3)', note: '⚠ gonfiato dai versamenti PAC' }] : []),
+    { l: cagrLabel, v: (result.cagr >= 0 ? '+' : '') + (result.cagr * 100).toFixed(2) + '%/a', c: result.cagr >= 0 ? 'var(--green)' : 'var(--red)', note: btState.pac > 0 ? '⚠ gonfiato dai versamenti PAC' : '' },
+    ...(btState.pac > 0 ? [{ l: 'CAGR su totale investito (PAC incluso)', v: (result.cagrOnInvested >= 0 ? '+' : '') + (result.cagrOnInvested * 100).toFixed(2) + '%/a', c: result.cagrOnInvested >= 0 ? 'var(--green)' : 'var(--red)', note: 'misura il rendimento effettivo del capitale' }] : []),
     { l: 'Max Drawdown', v: (result.maxDD * 100).toFixed(1) + '%', c: result.maxDD < -0.3 ? 'var(--red)' : result.maxDD < -0.15 ? 'var(--orange)' : 'var(--green)' },
     { l: 'Valore reale (inflaz. +' + ((result.cumInflation-1)*100).toFixed(0) + '% cum.)', v: fmt(result.realValues[result.realValues.length-1]), c: 'var(--teal)' },
   ].map(s => `<div class="bt-stat-card"><div class="lbl">${s.l}${s.note ? `<span style="font-size:10.5px;color:var(--text3);margin-left:4px">${s.note}</span>` : ''}</div><div class="val" style="color:${s.c}">${s.v}</div></div>`).join('');
@@ -5170,7 +5294,28 @@ function runAllBacktests() {
   // Run backtesting for all start years and compare
   const portKey = btState.port === 'sim' ? state.portfolio : btState.port;
   const tC = 'rgba(0,0,0,.45)', gC = 'rgba(0,0,0,.05)';
-  
+
+  // ── Gate: stesso vincolo del backtest singolo ──
+  const unmapped = getUnmappedHistAssets(portKey);
+  if (unmapped.length) {
+    const names = unmapped.map(u => u.label).join(', ');
+    document.getElementById('btResults').style.display = 'block';
+    document.getElementById('btCompareSec').style.display = 'none';
+    document.getElementById('btResultTitle').textContent = 'Backtesting non disponibile';
+    let warnBox = document.getElementById('btUnmappedWarn');
+    if (!warnBox) { warnBox = document.createElement('div'); warnBox.id='btUnmappedWarn'; document.getElementById('btResults').appendChild(warnBox); }
+    warnBox.innerHTML = `<div class="callout" style="border-color:var(--red);background:rgba(217,48,37,.06);margin-top:12px">
+      <strong style="color:var(--red)">⚠ Backtesting non applicabile a questo portafoglio</strong>
+      <p style="margin:8px 0 0">Contiene <em>${names}</em>, privi di serie storica nel dataset 1970-2024 (azioni/bond/oro). Usa il Monte Carlo Avanzato con un modello parametrico (t-Student).</p>
+    </div>`;
+    warnBox.style.display = 'block';
+    ['chBt','chBtDD'].forEach(id => { const c = document.getElementById(id); if (c && c.closest('.card,.chart-wrap,.pblock')) c.closest('.card,.chart-wrap,.pblock').style.display='none'; });
+    return;
+  }
+  const prevWarn = document.getElementById('btUnmappedWarn');
+  if (prevWarn) prevWarn.style.display = 'none';
+  ['chBt','chBtDD'].forEach(id => { const c = document.getElementById(id); if (c && c.closest('.card,.chart-wrap,.pblock')) c.closest('.card,.chart-wrap,.pblock').style.display=''; });
+
   document.getElementById('btResults').style.display = 'block';
   document.getElementById('btCompareSec').style.display = 'block';
   
@@ -5194,24 +5339,23 @@ function runAllBacktests() {
     });
     
     summaryRows.push({
-      year: startYear, label: period.label,
-      cagr: result.cagr, irr: result.irr, finalVal: result.finalValue,
+      year: startYear, label: period.label, 
+      cagr: result.cagr, cagrOnInvested: result.cagrOnInvested, finalVal: result.finalValue,
       maxDD: result.maxDD, invested: result.finalInvested,
       color: period.color,
     });
   }
   
-  // Sort by IRR desc
-  summaryRows.sort((a, b) => b.irr - a.irr);
-
-  const irrLabel = btState.pac > 0 ? 'IRR annuo' : 'CAGR nominale';
+  // Sort by CAGR on invested
+  summaryRows.sort((a, b) => b.cagrOnInvested - a.cagrOnInvested);
+  
   document.getElementById('btCompareStats').innerHTML = `
     <div class="tbl-outer"><table>
-      <thead><tr><th style="text-align:left">Anno inizio</th><th>Evento</th><th title="IRR: tasso interno di rendimento — corretto per timing e importo dei versamenti PAC">${irrLabel}</th><th title="CAGR sul solo capitale iniziale — gonfiato dai versamenti PAC se attivi">CAGR cap. iniziale</th><th>Valore finale</th><th>Max Drawdown</th><th>Totale versato</th></tr></thead>
+      <thead><tr><th style="text-align:left">Anno inizio</th><th>Evento</th><th title="CAGR sul totale investito (cap. iniziale + PAC)">CAGR su tot. investito</th><th title="CAGR sul solo capitale iniziale — gonfiato dal PAC se attivo">CAGR cap. iniziale</th><th>Valore finale</th><th>Max Drawdown</th><th>Totale versato</th></tr></thead>
       <tbody>${summaryRows.map(r => `<tr>
         <td style="text-align:left;font-weight:700;color:${r.color};font-family:'DM Mono',monospace">${r.year}</td>
         <td style="font-size:11.5px;color:var(--text2)">${BT_PERIODS[r.year].label.split('—')[1]?.trim() || ''}</td>
-        <td class="${r.irr >= 0.05 ? 'pos' : r.irr >= 0 ? 'neutral' : 'neg'}" style="font-family:'DM Mono',monospace;font-weight:600">${(r.irr >= 0 ? '+' : '') + (r.irr*100).toFixed(2)}%/a</td>
+        <td class="${r.cagrOnInvested >= 0.05 ? 'pos' : r.cagrOnInvested >= 0 ? 'neutral' : 'neg'}" style="font-family:'DM Mono',monospace;font-weight:600">${(r.cagrOnInvested >= 0 ? '+' : '') + (r.cagrOnInvested*100).toFixed(2)}%/a</td>
         <td style="font-family:'DM Mono',monospace;font-size:11.5px;color:var(--text3)">${(r.cagr >= 0 ? '+' : '') + (r.cagr*100).toFixed(2)}%/a</td>
         <td style="font-weight:600">${fmt(r.finalVal)}</td>
         <td class="${r.maxDD < -0.3 ? 'neg' : r.maxDD < -0.15 ? 'neutral' : 'pos'}" style="font-family:'DM Mono',monospace">${(r.maxDD*100).toFixed(1)}%</td>
@@ -5224,7 +5368,7 @@ function runAllBacktests() {
   const normalizedDatasets = datasets.map(ds => ({
     ...ds,
     data: ds.data.map((v, i) => i === 0 ? 100 : Math.round(v / ds.data[0] * 100)),
-    label: (() => { const yr = +ds.label.split(' · ')[0]; const row = summaryRows.find(r => r.year === yr); const irrStr = row ? (row.irr >= 0 ? '+' : '') + (row.irr*100).toFixed(1) + '%/a' : ''; return ds.label + (irrStr ? ' (' + irrStr + ')' : ''); })(),
+    label: (() => { const yr = +ds.label.split(' · ')[0]; const row = summaryRows.find(r => r.year === yr); const cagr = row ? (row.cagr >= 0 ? '+' : '') + (row.cagr*100).toFixed(1) + '%/a' : ''; return ds.label + (cagr ? ' (' + cagr + ')' : ''); })(),
   }));
   
   if (chartBtComp) { chartBtComp.destroy(); chartBtComp = null; }
