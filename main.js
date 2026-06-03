@@ -645,6 +645,13 @@ const NORMAL_ECO = { eqMult: 1.0, obMult: 1.0, goldMult: 0.7, cashRet: 0.02, inf
 const SEQ_RATES = { mild: -.20, moderate: -.35, severe: -.50 };
 const RECOVERY_YEARS = 5;
 const BOND_RALLY_RATE = .05;
+// Frazione di recupero del gap durante la fase di recovery (0<f<1).
+// Con f=1 il rimbalzo annullerebbe interamente il crollo riportando il capitale
+// sulla traiettoria base — irrealistico: cancella il sequence-of-returns risk.
+// Con f=0.6 il recupero del prezzo è parziale e lascia una "cicatrice" permanente
+// differenziata per severità (mild ~−14%, moderate ~−21%, severe ~−29% sul lungo
+// periodo in lump-sum), coerente con l'evidenza empirica del rischio sequenza.
+const RECOVERY_CATCHUP = 0.6;
 
 // ══════════════════════════════════════════════════════════════
 // STATE
@@ -1061,7 +1068,8 @@ function project(scenario, withSeq, terOverride = null, portOverride = null) {
     const severityFactor = idx === 0 ? 1.0 : idx === 1 ? 0.65 : 0.45; // diminishing severity
     const acw = getCrashYear(seq.timing, years) >= 0 ? getEquityWeight(portKey, age + cy) : 0;
     const crRate = eqCR * severityFactor * acw + BOND_RALLY_RATE * (1 - acw);
-    const cuf = acw > 0 ? Math.pow(1 / (1 + eqCR * severityFactor), 1 / RECOVERY_YEARS) : 1;
+    // Partial catch-up: il rimbalzo recupera solo una frazione del gap (cicatrice permanente)
+    const cuf = acw > 0 ? Math.pow(Math.pow(1 / (1 + eqCR * severityFactor), 1 / RECOVERY_YEARS), RECOVERY_CATCHUP) : 1;
     crashMap[cy] = { rate: crRate, cuf, acw, severityFactor };
   });
 
@@ -1185,7 +1193,7 @@ function runMontecarlo() {
   const acw = crashYear > 0 ? getEquityWeight(portfolio, age + crashYear) : 0;
   const eqCR = SEQ_RATES[seq.severity] ?? -0.35;
   const acr = eqCR * acw + BOND_RALLY_RATE * (1 - acw);
-  const cuf = acw > 0 ? Math.pow(1 / (1 + eqCR), 1 / RECOVERY_YEARS) : 1;
+  const cuf = acw > 0 ? Math.pow(Math.pow(1 / (1 + eqCR), 1 / RECOVERY_YEARS), RECOVERY_CATCHUP) : 1;
   
   // Build crash map for multi-crash
   const crashMap = {};
@@ -1193,7 +1201,7 @@ function runMontecarlo() {
     const sf = idx === 0 ? 1.0 : idx === 1 ? 0.65 : 0.45;
     const cw2 = getEquityWeight(portfolio, age + cy);
     const cr2 = eqCR * sf * cw2 + BOND_RALLY_RATE * (1 - cw2);
-    const cuf2 = cw2 > 0 ? Math.pow(1 / (1 + eqCR * sf), 1 / RECOVERY_YEARS) : 1;
+    const cuf2 = cw2 > 0 ? Math.pow(Math.pow(1 / (1 + eqCR * sf), 1 / RECOVERY_YEARS), RECOVERY_CATCHUP) : 1;
     crashMap[cy] = { rate: cr2, cuf: cuf2, acw: cw2, sf };
   });
 
