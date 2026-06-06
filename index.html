@@ -824,6 +824,7 @@
     <div>
       <div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;font-weight:600">Portafoglio Decumulo</div>
       <div class="btn-group" id="decAllocBtns">
+        <button class="gbtn a-green" data-k="__sim__" title="Usa lo stesso portafoglio scelto nel Simulatore (incluso un eventuale Custom)">🔗 Come simulatore</button>
         <button class="gbtn" data-k="eq100">100% Az.</button><button class="gbtn" data-k="eq80">80/20</button>
         <button class="gbtn a-blue" data-k="eq60">60/40</button><button class="gbtn" data-k="eq50">50/50</button>
         <button class="gbtn" data-k="eq40">40/60</button><button class="gbtn" data-k="ob100">100% Ob.</button>
@@ -831,6 +832,7 @@
         <button class="gbtn" data-k="all_seasons">🌤️ AS</button><button class="gbtn" data-k="larry">📐 Larry</button>
         <button class="gbtn" data-k="global_market">🗺️ GMP</button>
       </div>
+      <div id="decSimPortInfo" style="font-size:11px;color:var(--green);margin-top:6px;line-height:1.4"></div>
     </div>
     <div class="pblock"><div class="plabel"><span>Inflazione annua</span><span class="pval" id="lDecI">2.0%</span></div><input type="range" id="sDecI" min="0" max="8" step="0.5" value="2.0"><div class="range-hints"><span>0%</span><span>8%</span></div></div>
   </div>

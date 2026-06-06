@@ -85,8 +85,8 @@ const PORT = {
   permanent: {
     label: '🏛️ Permanent Portfolio',
     desc: 'Ideato da Harry Browne (1981). Composizione: 25% Azioni, 25% Oro, 25% Ob. Lungo Termine, 25% Liquidità. Progettato per funzionare in OGNI regime economico: prosperità (azioni), inflazione (oro), deflazione (obbligazioni), recessione (liquidità). Volatilità storica molto bassa (σ≈7%), rendimento nominale storico 1970-2023: ~8%/a lordo (beneficio del gold rush degli anni \'70 e del bull bond 1980-2020). Rendimento atteso forward-looking: ~4.4%/a. Beta inflazione calcolato ≈ +0.13: oro e liquidità a tasso variabile coprono parzialmente l\'impatto negativo delle obbligazioni lunghe in regime inflattivo.',
-    best: .058, normal: .044, worst: .018, vol: .070,
-    eq: .25, ob: .25, gold: .25, cash: .25, realRet: .024, inflBeta: 0.13, fxExp: 0.47, // 25%eq*0.85 + 25%oro*1.0 + 25%ob*0.05 + 25%cash*0
+    best: .060, normal: .046, worst: .019, vol: .070,
+    eq: .25, ob: .25, gold: .25, cash: .25, realRet: .024, inflBeta: 0.125, fxExp: 0.47, // Allineato al motore custom (25/25/25/25): mu ponderato 4.6%, beta +0.125. Oro e liquidità a tasso variabile coprono parzialmente l'impatto negativo delle obbligazioni lunghe.
     breakdown: {
       'Azioni': '25%',
       'Oro': '25%',
@@ -97,9 +97,9 @@ const PORT = {
   all_seasons: {
     label: '🌤️ All Seasons (Dalio)',
     desc: 'Versione retail dell\'All Weather di Ray Dalio (Bridgewater). Composizione: 30% Azioni, 40% Ob. Lungo Termine, 15% Ob. Medio Termine, 7.5% Oro, 7.5% Commodities. Progettato per distribuire il rischio su quattro regimi macro (crescita alta/bassa × inflazione alta/bassa). Storicamente: ~7.5%/a nominale, σ≈8%. Rendimento atteso forward-looking: ~5.0%/a. Nota: l\'allocazione del 40% in obbligazioni a lungo termine lo rende più vulnerabile all\'inflazione di quanto sembri (beta inflazione calcolato ≈ −0.03: la perdita sulle obbligazioni compensa quasi del tutto la protezione di oro e commodities).',
-    best: .066, normal: .050, worst: .020, vol: .080,
+    best: .068, normal: .052, worst: .022, vol: .080,
     eq: .30, ob: .55, gold: .15, cash: 0,
-    realRet: .030, inflBeta: -0.03, fxExp: 0.40, // 30%eq*0.85 + 15%real(oro+comm) + 55%ob*0.05; i real asset (oro 7.5% + commodities 7.5%) sono modellati nello sleeve 'gold'
+    realRet: .030, inflBeta: -0.026, fxExp: 0.40, // Allineato al motore custom (composizione 30/40/15/7.5/7.5): mu ponderato 5.22%, beta inflazione −0.026. I real asset (oro 7.5% + commodities 7.5%) sono aggregati nello sleeve 'gold' (15%) per il preset.
     breakdown: {
       'Azioni Globali': '30%',
       'Ob. Lungo Termine': '40%',
@@ -111,9 +111,9 @@ const PORT = {
   larry: {
     label: '📐 Larry Portfolio',
     desc: 'Ideato da Larry Swedroe. Alta concentrazione su fattori di rischio accademici (small cap value, emerging). Composizione: 15% US Small Cap Value, 7.5% Intl Small Cap Value, 7.5% Emerging Markets, 70% Ob. Breve/Medio Termine. L\'idea: concentrare il rischio solo sull\'azionario ad alto rendimento atteso (small cap value, emerging) ammortizzato da bond a bassa duration. Volatilità portafoglio calcolata ~7.5%/a. Rendimento atteso ~5.8%/a. Beta inflazione calcolato ≈ −0.02: il contributo del bond breve (tassi flottanti) è quasi neutralizzato dalla quota azionaria value.',
-    best: .073, normal: .058, worst: .030, vol: .075,
+    best: .070, normal: .055, worst: .027, vol: .075,
     eq: .30, ob: .70, gold: 0, cash: 0,
-    realRet: .038, inflBeta: -0.02, fxExp: 0.29, // 30%eq*0.85 + 70%ob*0.05
+    realRet: .038, inflBeta: -0.023, fxExp: 0.29, // Allineato al motore custom (15 SCV + 7.5 intl SCV + 7.5 EM + 70 ob breve/medio): mu ponderato 5.5%, beta −0.023.
     breakdown: {
       'US Small Cap Value': '15%',
       'Intl Small Cap Value': '7.5%',
@@ -124,9 +124,9 @@ const PORT = {
   global_market: {
     label: '🗺️ Global Market Portfolio',
     desc: 'Portafoglio che replica la capitalizzazione del mercato mondiale: ~55% azioni globali sviluppati, ~45% obbligazioni globali aggregate. È il portafoglio "neutro" per definizione — rappresenta la quota detenuta dall\'investitore medio mondiale. Rendimento storico ~6%/a, vol ~9%. Ottimo benchmark passivo.',
-    best: .071, normal: .053, worst: .020, vol: .088,
+    best: .077, normal: .060, worst: .026, vol: .088,
     eq: .55, ob: .45, gold: 0, cash: 0,
-    realRet: .033, inflBeta: 0.02, fxExp: 0.49, // 55%eq*0.85 + 45%ob*0.05
+    realRet: .033, inflBeta: 0.129, fxExp: 0.49, // Allineato al motore custom (55 az. sviluppati + 45 aggregato globale): mu ponderato 6.0%, beta +0.129. Coerente con il CAGR storico ~6%/a citato.
     breakdown: {
       'Azioni Globali Sviluppati': '55%',
       'Obbligaz. Globali (Agg.)': '45%',
@@ -995,41 +995,90 @@ function calcNetNom(g, inv, tx) {
 // ══════════════════════════════════════════════════════════════
 // PROJECTION — scenario deterministico
 // ══════════════════════════════════════════════════════════════
+// Gap minimi tra crash successivi (anni). GAP[0] = cy2−cy1, GAP[1] = cy3−cy2.
+const SEQ_CRASH_GAP = [7, 6];
+
+// Quanti crash riesce realmente a ospitare un piano di N anni rispettando i
+// gap minimi, dato un numero desiderato. I crash devono stare in [1, years−1].
+function maxCrashesForHorizon(desired, years) {
+  const lastSlot = years - 1;            // ultimo anno utilizzabile per un crash
+  if (lastSlot < 1) return 0;            // piano troppo corto anche per 1 crash
+  let count = 1;                         // c'è sempre spazio per il primo (anno 1)
+  let needed = 1;                        // span minimo occupato finora (anno 1)
+  for (let i = 0; i < desired - 1 && i < SEQ_CRASH_GAP.length; i++) {
+    needed += SEQ_CRASH_GAP[i];          // aggiungi il gap per il crash successivo
+    if (needed <= lastSlot) count++;     // ci sta entro l'orizzonte
+    else break;                          // non c'è più spazio: degrada qui
+  }
+  return count;
+}
+
 function getCrashYears(mode, timing, years) {
-  // Returns array of crash years for multi-crash modes.
-  // Vincoli: gap minimo cy2-cy1 ≥ 7 anni; gap minimo cy3-cy2 ≥ 6 anni.
-  // Con timing='late' i vincoli prevalgono sul timing tardivo, anticipando
-  // i crash precedenti per rispettare le distanze minime.
+  // Restituisce un array di anni-crash SEMPRE valido: interi, unici, crescenti,
+  // tutti in [1, years−1]. Se la durata è troppo breve per ospitare il numero di
+  // crash richiesto dal mode rispettando i gap minimi, il numero di crash viene
+  // ridotto automaticamente (3 → 2 → 1) invece di produrre anni non validi.
+  // Il numero EFFETTIVO di crash è quindi crashYears.length (può essere < mode).
+  const desired = mode === 'triple' ? 3 : mode === 'double' ? 2 : 1;
+  const n = Math.min(desired, maxCrashesForHorizon(desired, years));
+
   const cy1Raw = getCrashYear(timing, years);
-  if (mode === 'single' || !mode) return [Math.max(1, Math.min(years - 1, cy1Raw))];
 
-  if (mode === 'double') {
-    // Vogliamo cy1 < cy2, cy2 ≤ years-2, gap ≥ 8
-    // Se timing='late', anticipiamo cy1 per fare spazio a cy2
-    let cy2 = Math.min(years - 2, Math.max(cy1Raw + 8, Math.round(years * 0.62)));
-    let cy1 = Math.max(1, Math.min(cy1Raw, cy2 - 8));
-    return [cy1, cy2];
+  // ── 1 crash ────────────────────────────────────────────────
+  if (n <= 1) return [clampYear(cy1Raw, years)];
+
+  // ── 2 crash ────────────────────────────────────────────────
+  const g1 = SEQ_CRASH_GAP[0];
+  if (n === 2) {
+    // cy2 ancorato al timing (ma ≥ cy1+g1), cy1 arretrato per fare spazio.
+    let cy2 = clampYear(Math.max(cy1Raw + g1, Math.round(years * 0.62)), years);
+    let cy1 = Math.max(1, Math.min(cy1Raw, cy2 - g1));
+    return enforceGaps([cy1, cy2], years);
   }
 
-  if (mode === 'triple') {
-    // Vogliamo cy3 ≤ years-1, gap cy3-cy2 ≥ 6, gap cy2-cy1 ≥ 7
-    // Strategia: posiziona cy3 vicino a 'timing', poi cy2 e cy1 a ritroso
-    let cy3 = Math.min(years - 1, Math.max(cy1Raw, Math.round(years * 0.82)));
-    let cy2 = Math.max(1, cy3 - 6);
-    let cy1 = Math.max(1, cy2 - 7);
-    // Se timing è 'early', spingiamo tutto in avanti il meno possibile
-    if (timing === 'early') {
-      cy1 = Math.max(1, Math.min(3, years));
-      cy2 = Math.min(years - 7, cy1 + 7);
-      cy3 = Math.min(years - 1, cy2 + 6);
-    } else if (timing === 'mid') {
-      cy1 = Math.max(1, Math.round(years * 0.30));
-      cy2 = Math.max(cy1 + 7, Math.round(years * 0.55));
-      cy3 = Math.min(years - 1, Math.max(cy2 + 6, Math.round(years * 0.82)));
-    }
-    return [cy1, cy2, cy3];
+  // ── 3 crash ────────────────────────────────────────────────
+  const g2 = SEQ_CRASH_GAP[1];
+  let cy1, cy2, cy3;
+  if (timing === 'early') {
+    cy1 = Math.max(1, Math.min(3, years));
+    cy2 = cy1 + g1;
+    cy3 = cy2 + g2;
+  } else if (timing === 'mid') {
+    cy2 = Math.round(years * 0.55);
+    cy1 = cy2 - g1;
+    cy3 = cy2 + g2;
+  } else { // late
+    cy3 = clampYear(Math.max(cy1Raw, Math.round(years * 0.82)), years);
+    cy2 = cy3 - g2;
+    cy1 = cy2 - g1;
   }
-  return [Math.max(1, Math.min(years - 1, cy1Raw))];
+  return enforceGaps([cy1, cy2, cy3], years);
+}
+
+// Forza un array di anni-crash a essere crescente, con gap minimi rispettati e
+// interamente contenuto in [1, years−1]. Prima spinge in avanti (rispettando i
+// gap), poi, se sfora il limite superiore, comprime all'indietro fino al gap
+// minimo. Garantisce unicità e ordinamento.
+function enforceGaps(arr, years) {
+  const last = years - 1;
+  const out = arr.slice();
+  // Passata avanti: ogni crash ≥ precedente + gap minimo, e ≥ 1
+  out[0] = Math.max(1, Math.round(out[0]));
+  for (let i = 1; i < out.length; i++) {
+    out[i] = Math.max(Math.round(out[i]), out[i - 1] + SEQ_CRASH_GAP[i - 1]);
+  }
+  // Passata indietro: l'ultimo non supera 'last'; comprimi mantenendo i gap
+  out[out.length - 1] = Math.min(out[out.length - 1], last);
+  for (let i = out.length - 2; i >= 0; i--) {
+    out[i] = Math.min(out[i], out[i + 1] - SEQ_CRASH_GAP[i]);
+  }
+  // Clamp finale di sicurezza al limite inferiore
+  for (let i = 0; i < out.length; i++) out[i] = Math.max(1, out[i]);
+  return out;
+}
+
+function clampYear(y, years) {
+  return Math.max(1, Math.min(years - 1, Math.round(y)));
 }
 
 // Volatilità "dynCorr" portafoglio — usa correlazioni stress in crisi
@@ -1269,7 +1318,7 @@ function runMontecarlo() {
 
   const terStr = state.ter > 0 ? `, TER ${state.ter.toFixed(2)}%` : '';
   const dynCorrStr = seq.on && seq.dynCorr ? ' · <strong style="color:var(--red)">Correlazioni dinamiche attive</strong>' : '';
-  const modeStr = seq.on && mode !== 'single' ? ` · ${mode === 'double' ? '2' : '3'} crash` : '';
+  const modeStr = seq.on && mode !== 'single' ? ` · ${crashYearsList.length} crash` : '';
   document.getElementById('mcDesc').innerHTML = `Monte Carlo 1.000 scenari — <strong>Gaussiano log-normale corretto</strong> (correzione Itō: μ<sub>arith</sub>=μ+σ²/2 → CAGR medio = μ target, P50 ≈ linea Base)${terStr}${modeStr}${dynCorrStr}. Per modelli avanzati (fat-tail, GARCH, Regime-Switching) usa il tab <em>MC Avanzato</em>. Lordi Nominali.`;
 
   return { p10, p25, p50, p75, p90, mean };
@@ -1423,13 +1472,20 @@ function renderInflation(vN, vW, vBt, inv, years, dN) {
   // Tabella correlazione asset-inflazione
   const port = getPortParams(state.portfolio);
   const eqW = getEquityWeight(state.portfolio, state.age + years);
-  const goldW = getGoldWeight(state.portfolio);
-  const obW = Math.max(0, 1 - eqW - goldW);
+  const cashW_t = getCashWeight(state.portfolio);
+  // Sleeve "real asset" (oro + commodities/altri real). Per i custom, calcCustomParams
+  // separa l'oro dalle commodities (cat 'real'/'carry'/'trend' → altW); le aggreghiamo
+  // qui sotto la stessa riga "Oro / Real asset" per non farle sparire dalla tabella e
+  // per coerenza con i preset (es. All Seasons) che le aggregano nello sleeve 'gold'.
+  const altW_t = (state.portfolio === 'custom') ? (calcCustomParams().altW ?? 0) : 0;
+  const goldW = getGoldWeight(state.portfolio) + altW_t;
+  const obW = Math.max(0, 1 - eqW - goldW - cashW_t);
+  const goldLabel = altW_t > 0 ? 'Oro / Real asset' : 'Oro';
   const assets = [
     { name: 'Azioni (' + (eqW * 100).toFixed(0) + '%)', corr: '+0.3', desc: 'Coprono l\'inflazione nel lungo periodo (+2-3% reale storico)', color: 'var(--green)' },
     { name: 'Obbligaz. nominali (' + (obW * 100).toFixed(0) + '%)', corr: '−0.35', desc: 'Soffrono molto in stagflazione: cedola fissa, rendimento reale negativo', color: 'var(--red)' },
-    { name: 'Oro (' + (goldW * 100).toFixed(0) + '%)', corr: '+0.5', desc: 'Forte correlazione positiva con inflazione elevata (1970-80, 2020-22)', color: 'var(--orange)' },
-    { name: 'Liquidità (' + (getCashWeight(state.portfolio) * 100).toFixed(0) + '%)', corr: '+0.2', desc: 'Tassi flottanti mitigano l\'erosione in contesti di rialzo', color: 'var(--teal)' },
+    { name: goldLabel + ' (' + (goldW * 100).toFixed(0) + '%)', corr: '+0.5', desc: 'Forte correlazione positiva con inflazione elevata (oro 1970-80, 2020-22; commodities copertura diretta)', color: 'var(--orange)' },
+    { name: 'Liquidità (' + (cashW_t * 100).toFixed(0) + '%)', corr: '+0.2', desc: 'Tassi flottanti mitigano l\'erosione in contesti di rialzo', color: 'var(--teal)' },
   ].filter(a => parseFloat(a.name.match(/\((\d+)/)?.[1] ?? '0') > 0);
 
   const portInflBeta = port?.inflBeta ?? 0.1;
@@ -1451,7 +1507,7 @@ function renderInflation(vN, vW, vBt, inv, years, dN) {
       </div>`).join('')}
     </div>
     <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:var(--radius-sm);padding:12px;font-size:12px;color:#795548;line-height:1.7">
-      In <strong>${years} anni</strong> al <strong>${inflBase.toFixed(1)}%</strong> (inflaz. centrale): ogni €100 oggi = €${(100 * dF_base).toFixed(0)} nominali. Erosione potere d'acquisto: <strong style="color:var(--red)">${((1 - 1 / dF_base) * 100).toFixed(1)}%</strong>. 
+      In <strong>${years} anni</strong> al <strong>${state.inflBottom.toFixed(1)}%</strong> (inflaz. centrale): ogni €100 oggi = €${(100 * dF_base).toFixed(0)} nominali. Erosione potere d'acquisto: <strong style="color:var(--red)">${((1 - 1 / dF_base) * 100).toFixed(1)}%</strong>. 
       Il portafoglio <strong>${getPortLabel(state.portfolio)}</strong> ha un beta inflazione di <strong>${portInflBeta > 0 ? '+' : ''}${portInflBeta.toFixed(2)}</strong> — 
       ${portInflBeta > 0.3 ? 'ottima difesa contro l\'erosione monetaria' : portInflBeta > 0 ? 'copertura parziale — i rendimenti reali potrebbero ridursi in contesti di alta inflazione' : 'attenzione: questo portafoglio soffre significativamente in periodi di alta inflazione'}.
     </div>`;
@@ -1823,7 +1879,10 @@ document.getElementById('abAllocBtns').onclick = e => { const b = e.target.close
 // TAB MC SUCCESS
 // ══════════════════════════════════════════════════════════════
 function runSuccessMC() {
-  const btn = event.target; btn.disabled = true; btn.textContent = '⏳ Calcolo...';
+  const btn = (typeof event !== 'undefined' && event && event.target)
+    || document.querySelector('#tab-mc .gbtn.a-blue')
+    || null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Calcolo...'; }
   setTimeout(() => {
     const { w, age, years, portfolio, ter, pics, exps } = state;
     const { withdrawal, years: wY, inflation: wI } = mcState;
@@ -1891,7 +1950,7 @@ function runSuccessMC() {
           <div class="mc-box"><div class="mc-lbl">90° percentile</div><div class="mc-val" style="color:var(--green)">${fmt(finalVals[Math.floor(N * .90)])}</div></div>
         </div>
       </div>`;
-    btn.disabled = false; btn.textContent = '🎯 Calcola Probabilità';
+    if (btn) { btn.disabled = false; btn.textContent = '🎯 Calcola Probabilità'; }
   }, 80);
 }
 
@@ -2262,11 +2321,19 @@ function importFromSim() {
   decState.startPortfolio = dN[state.years].value;
   // Salva la base di costo (capitale effettivamente versato) per il calcolo fiscale corretto
   decState._importedInvested = dN[state.years].invested || 0;
+  // Continuità accumulo→decumulo: eredita anche il portafoglio del simulatore (custom incluso).
+  decState.portfolio = state.portfolio;
+  decState._followSim = true;
+  document.querySelectorAll('#decAllocBtns .gbtn').forEach(x => { x.classList.remove('a-blue'); x.classList.remove('a-green'); });
+  const simBtn = document.querySelector('#decAllocBtns [data-k="__sim__"]');
+  if (simBtn) simBtn.classList.add('a-green');
+  const simInfo = document.getElementById('decSimPortInfo');
+  if (simInfo) simInfo.innerHTML = `Portafoglio ereditato dal Simulatore: <strong>${getPortLabel(state.portfolio)}</strong>`;
   document.getElementById('sDecStart').value = Math.min(decState.startPortfolio, 5000000);
   document.getElementById('lDecStart').textContent = fmt(decState.startPortfolio);
   const gainFracImp = decState.startPortfolio > 0 && decState._importedInvested < decState.startPortfolio
     ? ((1 - decState._importedInvested / decState.startPortfolio) * 100).toFixed(1) : '0';
-  document.getElementById('importStatus').textContent = `Importato: ${fmtFull(decState.startPortfolio)} (scenario base, età ${state.age + state.years} anni) — plusvalenza latente ${gainFracImp}%`;
+  document.getElementById('importStatus').textContent = `Importato: ${fmtFull(decState.startPortfolio)} (scenario base, età ${state.age + state.years} anni, portafoglio ${getPortLabel(state.portfolio)}) — plusvalenza latente ${gainFracImp}%`;
   renderDecumulo();
 }
 
@@ -2346,14 +2413,15 @@ function renderCustomBuilder() {
     <div class="custom-total ${totalOk?'ok':total>0?'warn':'err'}">
       Totale: ${total.toFixed(1)}% ${totalOk?'✅ OK':total<100?'⚠️ mancano '+(100-total).toFixed(1)+'%':'❌ eccedenza '+(total-100).toFixed(1)+'%'}
     </div>
+    <div style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.05em;margin:10px 0 6px;font-weight:600">Modelli di partenza (precompilano gli slot con asset specifici)</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <button class="addbtn" style="flex:1;min-width:140px" onclick="addCustomSlot()">+ Aggiungi asset class</button>
       <button class="gbtn a-blue" onclick="normalizeCustom()">⚖️ Normalizza a 100%</button>
-      <button class="gbtn" onclick="resetCustomPreset('eq60')" title="60% Az. Globali + 40% Aggregato">60/40</button>
+      <button class="gbtn" onclick="resetCustomPreset('eq60')" title="Implementazione concreta: 60% Azioni Mercati Sviluppati + 40% Aggregato Obbligazionario Globale (rendimento atteso più alto del preset generico 60/40)">60/40 Globale</button>
       <button class="gbtn" onclick="resetCustomPreset('all_seasons')" title="All Seasons di Dalio">All Seasons</button>
       <button class="gbtn" onclick="resetCustomPreset('permanent')" title="Permanent Portfolio di Browne">Permanent</button>
       <button class="gbtn" onclick="resetCustomPreset('larry')" title="Larry Portfolio di Swedroe">Larry</button>
-      <button class="gbtn" onclick="resetCustomPreset('global')" title="Mercato Globale">Global</button>
+      <button class="gbtn" onclick="resetCustomPreset('global')" title="Mercato Globale: 55% Azioni Sviluppate + 45% Aggregato Globale">Global Market</button>
       <button class="gbtn" onclick="resetCustomPreset('inflaz')" title="Anti-inflazione: Az+TIPS+Oro+Comm">Anti-Inflaz.</button>
       <button class="gbtn" onclick="resetCustomPreset('multifat')" title="Multi-fattore + Bond + Oro">Multi-Fat.</button>
       <button class="gbtn" onclick="resetCustomPreset('trend_div')" title="Azioni + Trend Following + Bond + Oro">Trend+Div.</button>
@@ -2495,7 +2563,26 @@ bindDecSlider('sDecY', 'lDecY', 'years', v => v + ' anni');
 bindDecSlider('sDecTer', 'lDecTer', 'ter', v => v.toFixed(2) + '%');
 bindDecSlider('sDecI', 'lDecI', 'inflation', v => v.toFixed(1) + '%');
 
-document.getElementById('decAllocBtns').onclick = e => { const b = e.target.closest('[data-k]'); if (!b) return; decState.portfolio = b.dataset.k; document.querySelectorAll('#decAllocBtns .gbtn').forEach(x => x.classList.remove('a-blue')); b.classList.add('a-blue'); renderDecumulo(); };
+document.getElementById('decAllocBtns').onclick = e => {
+  const b = e.target.closest('[data-k]'); if (!b) return;
+  // "🔗 Come simulatore": eredita il portafoglio scelto nel Simulatore (custom incluso).
+  // Snapshot del valore corrente di state.portfolio; per il custom, calcCustomParams()
+  // legge sempre state.customPortfolio, quindi il decumulo userà la stessa composizione.
+  if (b.dataset.k === '__sim__') {
+    decState.portfolio = state.portfolio;
+    decState._followSim = true;
+  } else {
+    decState.portfolio = b.dataset.k;
+    decState._followSim = false;
+  }
+  document.querySelectorAll('#decAllocBtns .gbtn').forEach(x => { x.classList.remove('a-blue'); x.classList.remove('a-green'); });
+  b.classList.add(b.dataset.k === '__sim__' ? 'a-green' : 'a-blue');
+  const simInfo = document.getElementById('decSimPortInfo');
+  if (simInfo) simInfo.innerHTML = decState._followSim
+    ? `Portafoglio ereditato dal Simulatore: <strong>${getPortLabel(state.portfolio)}</strong>`
+    : '';
+  renderDecumulo();
+};
 document.getElementById('decStratBtns').onclick = e => { const b = e.target.closest('[data-s]'); if (!b) return; decState.strategy = b.dataset.s; document.querySelectorAll('#decStratBtns .gbtn').forEach(x => x.classList.remove('a-blue')); b.classList.add('a-blue'); document.getElementById('decStratDesc').innerHTML = decStratDescs[b.dataset.s] || ''; renderDecumulo(); };
 
 // Eco timing — Scenari tab
@@ -2589,12 +2676,17 @@ function updateSeqDesc() {
   const mcInfo = document.getElementById('multiCrashInfo');
   if (mode !== 'single' && mcInfo) {
     mcInfo.style.display = 'block';
+    const desired = mode === 'triple' ? 3 : 2;
+    const actual = crashYears.length;
     const crashDescs = crashYears.map((cy, i) => {
       const sf = i === 0 ? 1.0 : i === 1 ? 0.65 : 0.45;
       const sevPct = Math.abs(SEQ_RATES[state.seq.severity] * sf * 100).toFixed(0);
       return `<strong>Crash #${i+1}</strong> (anno ${cy}): severità −${sevPct}% azionario`;
     });
-    mcInfo.innerHTML = `<strong>Modalità ${mode === 'double' ? '2 crash' : '3 crash'} realistici</strong> — ` + crashDescs.join(' · ') + 
+    const header = actual < desired
+      ? `<strong>Modalità ${desired} crash</strong> — orizzonte di ${state.years} anni troppo breve: ne vengono simulati <strong>${actual}</strong> (gap minimo ${SEQ_CRASH_GAP[0]} anni tra eventi)`
+      : `<strong>Modalità ${desired} crash realistici</strong> —`;
+    mcInfo.innerHTML = header + ' ' + crashDescs.join(' · ') +
       `<br><span style="font-size:11px;opacity:.8">I crash successivi al primo hanno severità ridotta (−35% / −55% del primo): storicamente i mercati già depressi rimbalzano più velocemente.</span>`;
   } else if (mcInfo) mcInfo.style.display = 'none';
 }
@@ -4311,8 +4403,15 @@ document.getElementById('sAdvNu').oninput = function(){ advMCState.nu=+this.valu
 // Init description
 document.getElementById('advMcModelDesc').innerHTML = ADV_MODEL_DESC['student'];
 
-function runAdvancedMC() {
-  const btn = event.target; btn.disabled=true; btn.textContent='⏳ Simulazione...';
+function runAdvancedMC(ev) {
+  // Recupera il bottone in modo robusto: preferisce l'evento passato dall'onclick,
+  // poi il global event (browser legacy), infine cerca il bottone per selettore.
+  // Evita di affidarsi esclusivamente a window.event (deprecato, assente in alcuni contesti).
+  const btn = (ev && ev.target)
+    || (typeof event !== 'undefined' && event && event.target)
+    || document.querySelector('#tab-advmc .gbtn.a-purple')
+    || null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Simulazione...'; }
   // ── Gate bootstrap: blocca se il custom contiene asset senza serie storica ──
   if (advMCState.model === 'bootstrap') {
     const unmapped = getUnmappedHistAssets(state.portfolio);
@@ -4320,7 +4419,7 @@ function runAdvancedMC() {
       const names = unmapped.map(u => u.label).join(', ');
       const box = document.getElementById('advMcModelDesc');
       if (box) box.innerHTML = `<span style="color:var(--red)"><strong>⚠ Block Bootstrap non disponibile per questo portafoglio.</strong> Gli asset <em>${names}</em> non hanno una serie storica dedicata nel dataset 1970-2024 (solo azioni sviluppate, aggregate bond e oro). Approssimarli falserebbe rischio e decorrelazione. Usa un modello parametrico (t-Student consigliato): vol e correlazioni di trend/carry sono modellate correttamente.</span>`;
-      btn.disabled=false; btn.textContent='🧮 Esegui Simulazione Avanzata';
+      if (btn) { btn.disabled=false; btn.textContent='🧮 Esegui Simulazione Avanzata'; }
       return;
     }
   }
@@ -4448,7 +4547,7 @@ function runAdvancedMC() {
       // Confronto tutti i modelli
       renderAdvMCComparison();
     } catch(e){ console.error('AdvMC error',e); }
-    btn.disabled=false; btn.textContent='🧮 Esegui Simulazione Avanzata';
+    finally { if (btn) { btn.disabled=false; btn.textContent='🧮 Esegui Simulazione Avanzata'; } }
   }, 80);
 }
 
